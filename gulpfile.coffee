@@ -1,9 +1,10 @@
-gulp = require 'gulp'
-gm = require 'gulp-gm'
-moment = require 'moment'
-fs = require 'fs'
-_ = require 'underscore'
-Path = require 'path'
+gulp        = require 'gulp'
+gm        = require 'gulp-gm'
+moment      = require 'moment'
+fs        = require 'fs'
+_         = require 'underscore'
+Path        = require 'path'
+request     = require 'request'
 
 IMG_RATIO = 1.618
 
@@ -14,10 +15,33 @@ reportName = (name)->
 	name + moment().format 'M-D-YY_hh:mm:ss'
 
 indexImageSizes = (raw)->
-	_(raw).countBy (img)-> "#{img.width} x #{img.height}"
+	_(raw).chain()
+		.countBy (img)-> "#{img.width} x #{img.height}"
+		.reduce((memo, val, key)->
+			memo.push({dimensions: key, count: val})
+			memo
+		, [])
+		.sortBy((i)-> -1 * i.count)
+		.value()
 
 indexImageRatios = (raw)->
-	_(raw).countBy 'ratio'
+	_(raw).chain()
+		.countBy 'ratio'
+		.reduce((memo, val, key)->
+			memo.push({ratio: key, count: val})
+			memo
+		, [])
+		.sortBy((i)-> -1 * i.count)
+		.value()
+
+downloadImage = (uri, folder, callback) ->
+	filename = Path.basename uri
+	request.head(uri, (err, res, body) ->
+		return callback 'failed' if err
+		request(uri).pipe(fs.createWriteStream("#{folder}/#{filename}")).on('close', ()->
+			callback null
+		)
+	)
 
 # gm convert image.jpg -crop 1x1+0+0 test.txt
 # gm convert image.jpg -fuzz 40% -trim -enhance -define jpeg:preserve-settings image-trimmed.jpg
@@ -35,12 +59,18 @@ gulp.task 'report', ->
 	gulp.src IMG_SRC
 		.pipe gm (file, done)->
 			file.identify (err, ident)->
-				info = { width: ident.size.width, height: ident.size.height }
+				console.log file if err
+				return done err, file if err
+				data = _.extend({}, ident)
+				info = { width: data.size.width, height: data.size.height }
 				ratio = info.width / info.height
 				info.ratio = Number(ratio.toFixed(2))
-				info.name = ident.path.substr Path.resolve('src').length+1
+				info.name = data.path.substr Path.resolve('src').length+1
 				raw.push info
 				done null, file
+		.on 'error', ->
+			console.log 'error', arguments[0]
+			@emit 'end'
 		.on 'end', ->
 			report =
 				sizes: indexImageSizes raw
@@ -51,3 +81,11 @@ gulp.task 'report', ->
 				"reports/#{reportName('sizes-')}.json",
 				JSON.stringify({ report: report }, null, 2)
 			)
+
+
+gulp.task 'download', (done)->
+	brandList = (require './import/brands.json')
+
+	brandList.forEach (bUri)->
+		downloadImage bUri, 'src/brands', (err)->
+

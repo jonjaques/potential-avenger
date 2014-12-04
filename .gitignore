@@ -1,4 +1,6 @@
 src/*
 reports/*
+dist/*
+import/*
 !.gitkeep
 node_modules
