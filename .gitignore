@@ -1,0 +1,4 @@
+src/*
+reports/*
+!.gitkeep
+node_modules
